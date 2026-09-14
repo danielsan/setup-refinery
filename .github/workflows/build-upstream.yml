@@ -219,20 +219,7 @@ jobs:
       - name: Assert the feature contract
         working-directory: src-build/refinery_cli-${{ needs.resolve.outputs.version }}
         shell: bash
-        run: |
-          set -euo pipefail
-          cargo tree -p refinery_cli -e features --target "$TARGET" > ft.txt
-          # An auto-building pipeline would otherwise happily ship a silently
-          # degraded binary the day upstream changes its default feature set.
-          if grep -q 'int8-versions' ft.txt; then
-            echo "::error::int8-versions leaked into the build; it changes refinery_schema_history semantics"
-            exit 1
-          fi
-          for f in postgres-tls rusqlite-bundled tiberius-config; do
-            grep -q "feature \"$f\"" ft.txt || {
-              echo "::error::lost expected feature: $f"; exit 1; }
-          done
-          echo "feature contract OK: postgres-tls, rusqlite-bundled, tiberius-config present; int8-versions absent"
+        run: bash "$GITHUB_WORKSPACE/scripts/assert-features.sh"
 
       - name: Verify binary (Unix)
         if: runner.os != 'Windows'
