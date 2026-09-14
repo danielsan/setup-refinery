@@ -117,11 +117,15 @@ path. Document it in troubleshooting; do not try to work around it in the action
   `refinery-core/postgres-tls` in **0.9.2+**, but to plain `refinery-core/postgres` in **0.9.0 and
   0.9.1** — so those two versions link no TLS backend at all and `sslmode=require` cannot work.
   This is why the feature contract *derives* the required refinery-core features from the crate's own
-  `[features]` table instead of asserting a hardcoded list, and why `fetch-source.sh` skips the
-  vendored-OpenSSL patch when `postgres-tls` is absent: vendoring OpenSSL for a version that never
-  references it just adds a dependency the linker discards, leaving archives that claim an OpenSSL
-  the binary does not contain. The decision flows to the other scripts as `REFINERY_PG_TLS=on|off`,
-  and `verify-binary.sh` asserts it in **both** directions.
+  `[features]` table instead of asserting a hardcoded list.
+- **`REFINERY_PG_TLS` is a label, never a build gate.** Tempting and wrong: skipping the
+  vendored-OpenSSL patch when `postgres-tls` is absent. `openssl-sys` is in the Linux build graph for
+  **every** 0.9.x version regardless, so skipping the patch does not remove OpenSSL from the build —
+  it just leaves `openssl-sys` probing pkg-config for a system OpenSSL that cannot be
+  cross-compiled against, and the build dies with *"pkg-config has not been configured to support
+  cross-compilation"*. Verified the hard way on both Linux targets of both backfill versions. The
+  patch is unconditional on Linux; `REFINERY_PG_TLS` only decides what `BUILDINFO.txt` and the docs
+  say about TLS reachability.
 - **Three C libraries, not one**: bundled SQLite, zlib (`mysql`'s `minimal` → `flate2/zlib` →
   `libz-sys`), and OpenSSL (Linux only).
 - **OpenSSL is a Linux-only problem.** `native-tls` maps to SChannel on Windows and
