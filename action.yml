@@ -1,8 +1,8 @@
 name: 'Setup refinery CLI'
 description: >-
   Install the refinery SQL migration CLI (rust-db/refinery) on Linux, macOS or
-  Windows runners and add it to PATH. Downloads a prebuilt, checksum-verified
-  binary in seconds instead of compiling it.
+  Windows runners in about a second. Downloads a prebuilt, checksum-verified
+  binary instead of spending minutes on cargo install.
 author: 'Daniel Santana'
 
 branding:

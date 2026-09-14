@@ -35,10 +35,15 @@ five runner platforms, and only then publishes. Nothing is consumable until that
 2. Update the README if inputs, outputs or platforms changed. Remember that inputs are a permanent
    API: adding an optional defaulted input is fine, adding a required one or removing any is a
    breaking change.
-3. Create the release:
+3. Write the release notes under `.github/release-notes/v1.2.3.md` and create the release with
+   them. `--generate-notes` alone produces a commit list, which is not what a Marketplace visitor
+   should be reading — the release body is sales copy as much as a changelog:
    ```bash
-   gh release create v1.2.3 --title "setup-refinery v1.2.3" --generate-notes
+   gh release create v1.2.3 --title "setup-refinery v1.2.3" \
+     --notes-file .github/release-notes/v1.2.3.md
    ```
+   Keep any measured numbers in the notes honest: re-measure them from the verification run for
+   that release rather than copying the previous version's table.
 4. `major-tag.yml` moves `v1` automatically on publish.
 5. **Manual step:** tick *"Publish this Action to the GitHub Marketplace"* in the release UI. This
    cannot be done through the API.
