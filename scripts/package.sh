@@ -10,6 +10,15 @@ EXT="${EXT:-tar.gz}"
 EXE="${EXE:-}"
 EXTRA_EXT="${EXTRA_EXT:-}"
 OPENSSL_KIND="${OPENSSL_KIND:-unknown}"
+
+# targets.json records the TLS backend a target *normally* uses, but on Linux
+# that is only true when the upstream version actually pulls native-tls.
+# 0.9.0/0.9.1 map refinery_cli/postgresql to refinery-core/postgres, so no
+# OpenSSL is linked and fetch-source.sh applies no patch. Correct the notices
+# rather than let them claim an OpenSSL the binary does not contain.
+if [ "${REFINERY_PG_TLS:-on}" = off ] && [ "$OPENSSL_KIND" = vendored-static ]; then
+  OPENSSL_KIND=no-postgres-tls
+fi
 SRC="src-build/refinery_cli-$VERSION"
 BIN="$SRC/target/$TARGET/release/refinery$EXE"
 
@@ -45,6 +54,11 @@ BIN_SHA="$(sha256sum "$BIN" | awk '{print $1}')"
       printf -- '- **No OpenSSL.** TLS uses the macOS Security.framework via `native-tls`.\n' ;;
     schannel)
       printf -- '- **No OpenSSL.** TLS uses Windows SChannel via `native-tls`.\n' ;;
+    no-postgres-tls)
+      printf -- '- **No OpenSSL.** This refinery version maps `postgresql` to\n'
+      printf -- '  `refinery-core/postgres` rather than `postgres-tls`, so no TLS backend is\n'
+      printf -- '  compiled in and `sslmode=require` will not work. Use 0.9.2 or later for\n'
+      printf -- '  Postgres over TLS.\n' ;;
   esac
   printf '\n## Rust crates\n\n'
   printf '| crate | version | licence |\n|---|---|---|\n'
@@ -76,6 +90,10 @@ BIN_SHA="$(sha256sum "$BIN" | awk '{print $1}')"
   printf 'features             : default (mysql, postgresql, sqlite-bundled, mssql)\n'
   printf 'int8-versions        : OFF  <-- i32 migration versions, standard schema history\n'
   printf 'TLS backend          : %s\n' "$OPENSSL_KIND"
+  printf 'Postgres TLS         : %s\n' \
+    "$([ "${REFINERY_PG_TLS:-on}" = on ] \
+        && echo 'YES (refinery-core/postgres-tls -> native-tls)' \
+        || echo 'NO  (refinery-core/postgres; upstream added postgres-tls in 0.9.2)')"
   printf 'MSSQL TLS            : none (tiberius is built with default-features = false)\n'
   printf '\n'
   printf 'LIBSQLITE3_FLAGS     : %s\n' "${LIBSQLITE3_FLAGS:-<unset>}"

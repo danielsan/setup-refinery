@@ -57,9 +57,25 @@ case "$OS:$TARGET" in
     # OpenSSL cannot be handshake-tested cheaply: sslmode=require against a
     # self-signed cert fails CA and hostname verification by design. So prove it
     # is LINKED. Honest limitation -- presence is structural, not functional.
+    #
+    # Whether OpenSSL should be present at all depends on the upstream version:
+    # only refinery-core/postgres-tls pulls native-tls, and 0.9.0/0.9.1 map
+    # postgresql to refinery-core/postgres instead. fetch-source.sh decides and
+    # exports REFINERY_PG_TLS; assert in BOTH directions so the binary and the
+    # notices we ship alongside it can never disagree.
     ssl="$(strings -a "$BIN" | grep -oE 'OpenSSL 3\.[0-9]+\.[0-9]+' | sort -u | head -1 || true)"
-    [ -n "$ssl" ] || fail "no vendored OpenSSL found in the $TARGET binary"
-    printf 'linkage: static, no NEEDED, no INTERP, %s\n' "$ssl"
+    case "${REFINERY_PG_TLS:-on}" in
+      on)
+        [ -n "$ssl" ] || fail "no vendored OpenSSL found in the $TARGET binary"
+        printf 'linkage: static, no NEEDED, no INTERP, %s\n' "$ssl"
+        ;;
+      off)
+        [ -z "$ssl" ] \
+          || fail "refinery $VERSION has no postgres-tls, yet the binary contains $ssl; the shipped notices would be wrong"
+        printf 'linkage: static, no NEEDED, no INTERP, no OpenSSL (this version has no postgres-tls)\n'
+        ;;
+      *) fail "REFINERY_PG_TLS must be on or off, got '${REFINERY_PG_TLS:-}'" ;;
+    esac
     ;;
   macOS:*)
     otool_out="$(otool -L "$BIN")"

@@ -63,8 +63,20 @@ printf 'pristine Cargo.lock is self-consistent\n'
 : > PATCH.txt
 LOCKED_FLAG="--locked"
 
-case "$TARGET" in
-  *-linux-*)
+# Does this upstream version actually use native-tls? refinery_cli/postgresql
+# maps to refinery-core/postgres-tls in 0.9.2+, but to refinery-core/postgres in
+# 0.9.0 and 0.9.1 -- and only postgres-tls pulls native-tls. Vendoring OpenSSL
+# for a version that never references it would add a dependency the linker then
+# discards, leaving a binary with no OpenSSL but archives claiming otherwise. So
+# read the mapping out of the crate and let it decide whether to patch at all.
+PG_TLS=off
+if sed -n '/^\[features\]/,/^\[/p' Cargo.toml | grep -q 'refinery-core/postgres-tls'; then
+  PG_TLS=on
+fi
+printf 'postgres TLS in refinery_cli %s: %s\n' "$VERSION" "$PG_TLS"
+
+case "$TARGET:$PG_TLS" in
+  *-linux-*:on)
     # refinery-core declares native-tls without a `vendored` feature, and a
     # transitive dependency's feature cannot be enabled from the command line.
     # Scoping to cfg(target_os="linux") guarantees this cannot perturb the
@@ -95,8 +107,17 @@ PATCH
     diff -u Cargo.lock.pristine Cargo.lock > LOCK_DELTA.txt || true
     LOCKED_FLAG=""
     ;;
+  *-linux-*:off)
+    # No native-tls in the graph, so there is nothing to vendor: keep the
+    # pristine lock, keep --locked, and ship notices that say "no OpenSSL".
+    printf '::warning title=fetch-source::refinery %s has no Postgres TLS support (refinery_cli/postgresql maps to refinery-core/postgres, not postgres-tls). Skipping the vendored-OpenSSL patch; this binary links no OpenSSL and sslmode=require will not work.\n' "$VERSION"
+    ;;
 esac
 
 # Consumed by the build step.
 printf '%s\n' "$LOCKED_FLAG" > .locked_flag
+printf '%s\n' "$PG_TLS" > .pg_tls
+if [ -n "${GITHUB_ENV:-}" ]; then
+  printf 'REFINERY_PG_TLS=%s\n' "$PG_TLS" >> "$GITHUB_ENV"
+fi
 printf 'source ready: %s (locked_flag=%s)\n' "$PWD" "${LOCKED_FLAG:-<none>}"

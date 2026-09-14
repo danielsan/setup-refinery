@@ -113,6 +113,15 @@ path. Document it in troubleshooting; do not try to work around it in the action
   Postgres path — the one `refinery migrate` uses — when TLS is requested under
   `tokio-postgres-rustls`. Swapping to rustls is a fork, not a flag, and would panic on
   `sslmode=require` (RDS/Cloud SQL/Supabase/Neon). **native-tls/OpenSSL is mandatory on Linux.**
+- **`postgresql` does not always mean TLS.** `refinery_cli/postgresql` maps to
+  `refinery-core/postgres-tls` in **0.9.2+**, but to plain `refinery-core/postgres` in **0.9.0 and
+  0.9.1** — so those two versions link no TLS backend at all and `sslmode=require` cannot work.
+  This is why the feature contract *derives* the required refinery-core features from the crate's own
+  `[features]` table instead of asserting a hardcoded list, and why `fetch-source.sh` skips the
+  vendored-OpenSSL patch when `postgres-tls` is absent: vendoring OpenSSL for a version that never
+  references it just adds a dependency the linker discards, leaving archives that claim an OpenSSL
+  the binary does not contain. The decision flows to the other scripts as `REFINERY_PG_TLS=on|off`,
+  and `verify-binary.sh` asserts it in **both** directions.
 - **Three C libraries, not one**: bundled SQLite, zlib (`mysql`'s `minimal` → `flate2/zlib` →
   `libz-sys`), and OpenSSL (Linux only).
 - **OpenSSL is a Linux-only problem.** `native-tls` maps to SChannel on Windows and
