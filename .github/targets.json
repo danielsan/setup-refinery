@@ -1,0 +1,61 @@
+{
+  "$comment": "Single source of truth for the build matrix AND the consumer-side platform map. Both .github/workflows/build-upstream.yml and scripts/setup.sh read this file so asset naming can never drift between producer and consumer. 'runner' is data, not baked into YAML, so a retired runner label is a one-line change here.",
+  "targets": [
+    {
+      "target": "x86_64-unknown-linux-musl",
+      "runner": "ubuntu-latest",
+      "runner_os": "Linux",
+      "runner_arch": "X64",
+      "ext": "tar.gz",
+      "exe": "",
+      "libc": "musl",
+      "openssl": "vendored-static",
+      "cross_libc": true
+    },
+    {
+      "target": "aarch64-unknown-linux-musl",
+      "runner": "ubuntu-24.04-arm",
+      "runner_os": "Linux",
+      "runner_arch": "ARM64",
+      "ext": "tar.gz",
+      "exe": "",
+      "libc": "musl",
+      "openssl": "vendored-static",
+      "cross_libc": true
+    },
+    {
+      "target": "aarch64-apple-darwin",
+      "runner": "macos-latest",
+      "runner_os": "macOS",
+      "runner_arch": "ARM64",
+      "ext": "tar.gz",
+      "exe": "",
+      "libc": "system",
+      "openssl": "security-framework",
+      "cross_libc": false
+    },
+    {
+      "target": "x86_64-apple-darwin",
+      "runner": "macos-15-intel",
+      "runner_os": "macOS",
+      "runner_arch": "X64",
+      "ext": "tar.gz",
+      "exe": "",
+      "libc": "system",
+      "openssl": "security-framework",
+      "cross_libc": false
+    },
+    {
+      "target": "x86_64-pc-windows-msvc",
+      "runner": "windows-latest",
+      "runner_os": "Windows",
+      "runner_arch": "X64",
+      "ext": "tar.gz",
+      "extra_ext": "zip",
+      "exe": ".exe",
+      "libc": "system",
+      "openssl": "schannel",
+      "cross_libc": false
+    }
+  ]
+}
