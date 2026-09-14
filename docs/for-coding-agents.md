@@ -52,8 +52,13 @@ Getting this right also keeps the credential out of the log, because the shell n
 ### 2.2 Migration filenames must match a strict pattern
 
 ```
-^([UV])(\d+(?:\.\d+)?)__(\w+)\.sql$
+V<integer>__<name>.sql        # or U<integer>__<name>.sql
 ```
+
+`<name>` may contain only `[A-Za-z0-9_]`. The literal upstream regex is
+`^([U|V])(\d+(?:\.\d+)?)__(\w+)` (`refinery_core/src/util.rs:15`) — note that `[U|V]` is a
+character class, so it also happens to accept a `|` prefix, and it permits a decimal version that
+the parser then rejects. Write `V`/`U` with a plain integer and neither quirk matters.
 
 All of the following were checked against a real 0.9.2 binary:
 
@@ -61,7 +66,7 @@ All of the following were checked against a real 0.9.2 binary:
 | --- | --- |
 | `V1__create_users.sql` | applied |
 | `V2__add_email_index.sql` | applied |
-| `U3__drop_legacy.sql` | applied (`U` = unversioned) |
+| `U3__drop_legacy.sql` | applied (`U` = unversioned; see note below) |
 | `V4__add-colour.sql` | **silently ignored** — `\w+` excludes hyphens |
 | `V5__add colour.sql` | **silently ignored** — no spaces |
 | `V6_create_users.sql` | **silently ignored** — needs a *double* underscore |
@@ -81,6 +86,10 @@ Two distinct failure modes, and the difference matters:
   The filename regex permits `\d+(?:\.\d+)?`, so `V1.1__x.sql` passes the file filter and then
   fails to parse as an integer version. **Never generate decimal versions.** One such file in the
   directory stops the entire migration run, including migrations that would otherwise apply.
+
+`U` (unversioned) migrations are accepted and applied, and are recorded in the schema-history table
+like `V` ones. The distinction affects refinery's divergence/missing checks rather than whether the
+file runs. **Default to `V` unless the user specifically asks for unversioned migrations.**
 
 Versions are parsed as `i32` (this build has `int8-versions` off), so stay within ~2.1 billion —
 which also means date-style versions like `V20260914120000__x.sql` **overflow and fail**. Use
