@@ -31,6 +31,15 @@ Prebuilt, checksum-verified binaries for Linux, macOS and Windows (x64 and arm64
 Pinning an exact `version` is recommended: it makes your builds reproducible **and** skips the
 GitHub API entirely, so the action can never be affected by API rate limits.
 
+> ### Using a coding agent?
+>
+> Point it at **[docs/for-coding-agents.md](docs/for-coding-agents.md)** — a dense, verified
+> reference covering the `refinery` CLI's real behaviour: that `-e` takes an environment variable
+> *name* rather than a URL, the exact migration filename rules (and which mistakes fail silently
+> versus abort the whole run), why timestamp-style versions overflow, and the flags that matter in
+> CI. Every claim there is checked against a real binary. It ends with a block you can paste into
+> your own repository's `AGENTS.md`.
+
 ## Inputs
 
 | Input | Default | Description |
@@ -230,6 +239,15 @@ container image that includes bash.
 
 **`checksum mismatch`** — the action retries once, then fails without installing. Usually a
 truncated transfer or an interfering proxy. Please open an issue if it reproduces.
+
+## More documentation
+
+| Document | Audience |
+| --- | --- |
+| [docs/for-coding-agents.md](docs/for-coding-agents.md) | AI coding agents, and anyone debugging refinery CLI behaviour |
+| [AGENTS.md](AGENTS.md) | Contributors and agents working **on this repository** |
+| [RELEASING.md](RELEASING.md) | Maintainers cutting a release |
+| [SECURITY.md](SECURITY.md) | Reporting a vulnerability |
 
 ## Comparison
 

@@ -1,7 +1,12 @@
 # AGENTS.md
 
-Guidance for any coding agent (Claude Code, Codex, Cursor, Copilot, Gemini CLI, …) working in this
-repository. Human contributors should read it too.
+Guidance for any coding agent (Claude Code, Codex, Cursor, Copilot, Gemini CLI, …) working **on
+this repository**. Human contributors should read it too.
+
+> **Looking to _use_ this action in another project?** You want
+> [`docs/for-coding-agents.md`](docs/for-coding-agents.md) instead — that is the consumer-facing
+> reference for wiring refinery migrations into a workflow. This file is about developing the action
+> itself.
 
 ## What this repository is
 
@@ -76,6 +81,20 @@ bumping.
 - Upstream tags are unsortable garbage (`0.10`, `0.4`, `0.3`, `0.2` mixed with `v0.9.2`). **Use
   crates.io, never git tags**, for version discovery: clean semver, plus yank status
   (`0.8.15` is yanked; git cannot tell you that). crates.io requires a `User-Agent` or returns empty.
+
+### Migration version constraints (verified on a real binary)
+
+`SchemaVersion` is `i32` (`refinery_core/src/util.rs:11`, `#[cfg(not(feature = "int8-versions"))]`),
+and the filename stem regex is `^([U|V])(\d+(?:\.\d+)?)__(\w+)`. The regex is looser than the
+parser, which produces two different failure modes:
+
+- A name that does not match the regex is **silently skipped** — no warning, exit 0.
+- A name that matches but whose version is not a valid `i32` is a **hard error that aborts the whole
+  run**, including migrations that would otherwise apply. Both `V1.1__x.sql` (the regex permits a
+  decimal that the parser rejects) and `V20260914120000__x.sql` (i32 overflow) fail this way.
+  `V2147483647__x.sql` is the largest that works.
+
+Keep `test/migrations/` fixtures to plain sequential integers.
 
 ### Upstream bug to know about
 
