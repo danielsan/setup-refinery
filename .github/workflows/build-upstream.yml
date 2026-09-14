@@ -273,7 +273,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.resolve.outputs.tag }}
         shell: bash
-        run: gh release upload "$TAG" dist/* --clobber
+        # Only the archives and their sidecars. BUILDINFO-<target>.txt exists in
+        # dist/ purely for the step summary; the same content already ships
+        # inside every archive, so uploading it too would just be clutter.
+        run: |
+          gh release upload "$TAG" \
+            dist/refinery-*.tar.gz dist/refinery-*.tar.gz.sha256 \
+            --clobber
+          for extra in dist/refinery-*.zip dist/refinery-*.zip.sha256; do
+            [ -e "$extra" ] && gh release upload "$TAG" "$extra" --clobber
+          done
 
       - name: Summarise
         if: always()
@@ -289,7 +298,10 @@ jobs:
   finalize:
     name: aggregate checksums and assert completeness
     needs: [resolve, build]
-    if: ${{ !inputs.dry_run }}
+    # `build` is skipped when every asset already exists (a re-run of an
+    # interrupted release). That must still reach finalize/publish, so key off
+    # "build did not fail" rather than "build succeeded".
+    if: ${{ !inputs.dry_run && !cancelled() && needs.build.result != 'failure' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -339,7 +351,7 @@ jobs:
   consumer-smoke:
     name: consumer smoke (${{ matrix.runner }})
     needs: [resolve, finalize]
-    if: ${{ !inputs.dry_run }}
+    if: ${{ !inputs.dry_run && needs.finalize.result == 'success' }}
     strategy:
       fail-fast: false
       matrix:
@@ -351,20 +363,31 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       # Install from the DRAFT release using the real composite action, before
       # anyone outside this repo can consume it.
+      # Installs from the DRAFT release. Draft assets 404 at the public download
+      # URL, so this exercises the action's authenticated asset-API path -- the
+      # same path a private fork or internal mirror would take.
       - uses: ./
         id: setup
         with:
           version: ${{ needs.resolve.outputs.version }}
+          token: ${{ github.token }}
       - shell: bash
         run: |
+          set -euo pipefail
           refinery --version
           refinery migrate --help > /dev/null
           echo "resolved=${{ steps.setup.outputs.version }} cache-hit=${{ steps.setup.outputs.cache-hit }}"
+          # Prove the licence and provenance really travel with the binary.
+          d="$(dirname '${{ steps.setup.outputs.bin-path }}')"
+          for f in LICENSE BUILDINFO.txt THIRD-PARTY-NOTICES.md; do
+            [ -s "$d/$f" ] || { echo "::error::$f missing from the installed archive"; exit 1; }
+          done
+          echo "licence and provenance files present"
 
   publish:
     name: publish the release
     needs: [resolve, consumer-smoke]
-    if: ${{ !inputs.dry_run }}
+    if: ${{ !inputs.dry_run && needs.consumer-smoke.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

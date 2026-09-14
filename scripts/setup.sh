@@ -189,6 +189,52 @@ fetch() {
        -o "$2" "$1"
 }
 
+# Assets of a PUBLIC, PUBLISHED release are served from the plain download URL
+# with no authentication and no API rate limit -- that is the fast path and the
+# one virtually every consumer takes.
+#
+# It does not work for a draft release, or for a private repository: both 404
+# there. So fall back to the REST asset endpoint, which serves the bytes when
+# authenticated. That makes this action usable by private forks and internal
+# mirrors, and it is also how the release pipeline smoke-tests its own draft
+# before publishing it.
+ASSET_INDEX=""
+fetch_asset() { # fetch_asset <asset-name> <destination>
+  local name="$1" dest="$2"
+
+  if fetch "$BASE/$name" "$dest" 2>/dev/null; then
+    return 0
+  fi
+  [ -n "$TOKEN" ] || return 1
+
+  # Fetch the asset list once per run, not once per asset.
+  #
+  # Deliberately the /releases LIST endpoint, matched on tag_name -- not
+  # /releases/tags/<tag>, which returns 404 for a draft release because a draft
+  # has no real git tag yet. The list includes drafts when authenticated, so one
+  # code path covers published, draft and private releases alike.
+  if [ -z "$ASSET_INDEX" ]; then
+    api_get "$API/repos/$RELEASE_REPO/releases?per_page=100" || return 1
+    ASSET_INDEX="$(jq -c --arg t "refinery-v$VERSION" \
+      '[.[] | select(.tag_name == $t) | .assets[] | {name, id}]' "$BODY_FILE")" || return 1
+    [ "$(printf '%s' "$ASSET_INDEX" | jq 'length')" -gt 0 ] || return 1
+  fi
+
+  local id
+  id="$(printf '%s' "$ASSET_INDEX" | jq -r --arg n "$name" \
+    '.[] | select(.name == $n) | .id' | head -n1)"
+  [ -n "$id" ] && [ "$id" != null ] || return 1
+
+  curl --proto '=https' --tlsv1.2 -sSfL \
+       --retry 3 --retry-all-errors --retry-delay 2 --max-time 300 \
+       -H "Authorization: Bearer $TOKEN" \
+       -H 'Accept: application/octet-stream' \
+       -H 'X-GitHub-Api-Version: 2022-11-28' \
+       -o "$dest" "$API/repos/$RELEASE_REPO/releases/assets/$id" || return 1
+
+  info "downloaded $name via the authenticated asset API"
+}
+
 # extract_archive <archive> <destdir>
 extract_archive() {
   local a="$1" d="$2"
@@ -223,7 +269,7 @@ download_and_install() {
   for ext in "$EXT" zip; do
     asset="$(asset_name "$VERSION" "$ext")"
     url="$BASE/$asset"
-    if fetch "$url" "$WORK/$asset" 2>/dev/null; then got=true; break; fi
+    if fetch_asset "$asset" "$WORK/$asset"; then got=true; break; fi
   done
   $got || return 1
 
@@ -231,9 +277,9 @@ download_and_install() {
   # not always make `curl -f` fail); a second mismatch is fatal.
   local attempt=1
   while :; do
-    if fetch "$url.sha256" "$WORK/$asset.sha256" 2>/dev/null; then
+    if fetch_asset "$asset.sha256" "$WORK/$asset.sha256"; then
       :
-    elif fetch "$BASE/SHA256SUMS" "$WORK/SHA256SUMS" 2>/dev/null; then
+    elif fetch_asset "SHA256SUMS" "$WORK/SHA256SUMS"; then
       grep -E "  ?${asset}\$" "$WORK/SHA256SUMS" > "$WORK/$asset.sha256" \
         || die "release refinery-v$VERSION has no checksum entry for $asset"
     else
@@ -249,7 +295,7 @@ download_and_install() {
     if [ "$attempt" = 1 ]; then
       warn "checksum mismatch for $asset; re-downloading once in case of a truncated transfer"
       rm -f "$WORK/$asset" "$WORK/$asset.sha256"
-      fetch "$url" "$WORK/$asset" || die "re-download of $asset failed"
+      fetch_asset "$asset" "$WORK/$asset" || die "re-download of $asset failed"
       attempt=2
       continue
     fi
