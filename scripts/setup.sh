@@ -116,17 +116,10 @@ resolve_latest() {
   while [ "$page" -le 3 ]; do
     api_get "$API/repos/$RELEASE_REPO/releases?per_page=100&page=$page" \
       || die "could not list releases of $RELEASE_REPO (HTTP error)"
-    found="$(TARGET="$TARGET" jq -r '
-      .[]
-      | select(.draft == false and .prerelease == false)
-      | select(.tag_name | test("^refinery-v[0-9]+\\.[0-9]+\\.[0-9]+$"))
-      | { v: (.tag_name | ltrimstr("refinery-v")), names: [.assets[].name] }
-      | select(
-          .names | any(
-            startswith("refinery-\(.v)-" + env.TARGET + ".")
-          )
-        )
-      | .v' "$BODY_FILE")" || die "could not parse the release list"
+    # Filter lives in scripts/select-versions.jq so setup.sh and the unit tests
+    # share one definition. See that file for why each clause is there.
+    found="$(TARGET="$TARGET" jq -r -f "$SCRIPT_DIR/select-versions.jq" "$BODY_FILE")" \
+      || die "could not parse the release list"
     all="$all$found"$'\n'
     [ "$(jq 'length' "$BODY_FILE")" -eq 100 ] || break
     page=$((page + 1))

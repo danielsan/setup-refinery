@@ -84,6 +84,45 @@ no 'verify_sha256 rejects a wrong digest' verify_sha256 "$TMP/f" "$TMP/f.bad"
 printf 'not-a-digest  f\n' > "$TMP/f.malformed"
 no 'expected_sha256 rejects a malformed sidecar' expected_sha256 "$TMP/f.malformed"
 
+printf '# release selection (scripts/select-versions.jq)\n'
+# Recorded fixtures are the only way to cover "release exists but this target's
+# asset is missing" -- impossible to produce against the live API.
+FIX="$ROOT/test/fixtures/releases.json"
+sel() { TARGET="$1" jq -r -f "$ROOT/scripts/select-versions.jq" "$FIX" | semver_sort | tr '\n' ' ' | sed 's/ $//'; }
+
+# Sorted ascending, so the last entry is what `latest` resolves to.
+eq '0.9.1 0.9.2 0.9.10 0.10.0' "$(sel x86_64-unknown-linux-musl)" 'linux x64: all versions with that asset'
+# 0.9.2 has no aarch64-linux asset, so this platform must fall back to 0.9.1
+# rather than hard-failing. This is the graceful-degradation property.
+eq '0.9.1'                     "$(sel aarch64-unknown-linux-musl)" 'linux arm64: degrades to 0.9.1'
+eq '0.9.2'                     "$(sel aarch64-apple-darwin)"       'macos arm64: only 0.9.2'
+# Windows publishes .zip as well as .tar.gz; either satisfies the filter.
+eq '0.9.2'                     "$(sel x86_64-pc-windows-msvc)"     'windows: .zip counts'
+eq ''                          "$(sel x86_64-apple-darwin)"        'macos x64: nothing published'
+
+# Exclusions, each a real failure mode:
+sel_all="$(sel x86_64-unknown-linux-musl)"
+case "$sel_all" in
+  *1.0.0*|*1.1.0*) FAIL=$((FAIL+1)); printf 'FAIL action releases (v1.x) must never be selected\n' ;;
+  *) PASS=$((PASS+1)) ;;
+esac
+case "$sel_all" in
+  *0.9.0*) FAIL=$((FAIL+1)); printf 'FAIL draft releases must be excluded\n' ;;
+  *) PASS=$((PASS+1)) ;;
+esac
+case "$sel_all" in
+  *0.8.16*) FAIL=$((FAIL+1)); printf 'FAIL prereleases must be excluded\n' ;;
+  *) PASS=$((PASS+1)) ;;
+esac
+# 0.8.14 has ONLY a .sha256 sidecar, no archive -- a sidecar must not count.
+case "$sel_all" in
+  *0.8.14*) FAIL=$((FAIL+1)); printf 'FAIL a lone .sha256 sidecar must not count as an asset\n' ;;
+  *) PASS=$((PASS+1)) ;;
+esac
+# And the ordering trap: 0.9.10 > 0.9.9, 0.10.0 > 0.9.x
+eq '0.10.0' "$(sel x86_64-unknown-linux-musl | tr ' ' '\n' | semver_sort | tail -n1)" \
+   'latest picks 0.10.0, not 0.9.2 (numeric sort)'
+
 printf '\n%s\n' "-----------------------------"
 printf 'pass=%d fail=%d\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
