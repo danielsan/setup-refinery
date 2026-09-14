@@ -277,12 +277,17 @@ jobs:
         # dist/ purely for the step summary; the same content already ships
         # inside every archive, so uploading it too would just be clutter.
         run: |
-          gh release upload "$TAG" \
-            dist/refinery-*.tar.gz dist/refinery-*.tar.gz.sha256 \
-            --clobber
-          for extra in dist/refinery-*.zip dist/refinery-*.zip.sha256; do
-            [ -e "$extra" ] && gh release upload "$TAG" "$extra" --clobber
+          set -euo pipefail
+          # Collect what exists rather than globbing inline: on non-Windows there
+          # is no .zip, and a trailing false test would fail the step under bash -e.
+          files=()
+          for f in dist/refinery-*.tar.gz dist/refinery-*.tar.gz.sha256 \
+                   dist/refinery-*.zip dist/refinery-*.zip.sha256; do
+            [ -e "$f" ] && files+=("$f")
           done
+          [ ${#files[@]} -gt 0 ] || { echo "::error::nothing to upload from dist/"; exit 1; }
+          printf 'uploading %s\n' "${files[@]}"
+          gh release upload "$TAG" "${files[@]}" --clobber
 
       - name: Summarise
         if: always()

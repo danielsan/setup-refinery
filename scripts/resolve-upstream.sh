@@ -58,10 +58,18 @@ out tag "$TAG"
 
 # ------------------------------------------------------------------ what exists
 
-# `gh release view` fails when the release is absent, which is not an error here.
+# Which assets already exist?
+#
+# Deliberately the /releases LIST endpoint matched on tag_name, NOT
+# `gh release view <tag>`: that calls /releases/tags/<tag>, which returns 404 for
+# a draft release because a draft has no git tag yet. Using it would make every
+# re-run of an unpublished release think nothing had been built.
 EXISTING=""
+RELEASE_JSON="[]"
 if command -v gh >/dev/null 2>&1; then
-  EXISTING="$(gh release view "$TAG" --json assets --jq '.assets[].name' 2>/dev/null || true)"
+  RELEASE_JSON="$(gh api "repos/${GITHUB_REPOSITORY:-danielsan/setup-refinery}/releases?per_page=100" 2>/dev/null || echo '[]')"
+  EXISTING="$(printf '%s' "$RELEASE_JSON" | jq -r --arg t "$TAG" \
+    '.[] | select(.tag_name == $t) | .assets[].name' 2>/dev/null || true)"
 fi
 
 WANT="$(jq -r --arg v "$VERSION" \
@@ -91,10 +99,8 @@ if [ "$COUNT" -gt 0 ]; then out any true; else out any false; fi
 
 # watch-upstream also treats a still-draft release as "needed", so an interrupted
 # run gets picked up on the next tick rather than silently staying unpublished.
-DRAFT=false
-if command -v gh >/dev/null 2>&1; then
-  DRAFT="$(gh release view "$TAG" --json isDraft --jq '.isDraft' 2>/dev/null || echo false)"
-fi
+DRAFT="$(printf '%s' "$RELEASE_JSON" | jq -r --arg t "$TAG" \
+  'if any(.[]; .tag_name == $t and .draft) then "true" else "false" end' 2>/dev/null || echo false)"
 if [ "$COUNT" -gt 0 ] || [ "$DRAFT" = true ]; then
   out needed true
 else
