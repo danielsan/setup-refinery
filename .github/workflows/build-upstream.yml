@@ -391,3 +391,5 @@ jobs:
         run: |
           gh release edit "$TAG" --draft=false --latest=false
           echo "::notice::published $TAG"
+
+# (touched to trigger workflow registration)

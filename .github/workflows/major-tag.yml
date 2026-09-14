@@ -39,3 +39,5 @@ jobs:
             || gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" \
                  -f ref="refs/tags/$major" -f sha="$SHA"
           echo "::notice::$major now points at $SHA"
+
+# (touched to trigger workflow registration)
