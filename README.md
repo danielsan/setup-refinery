@@ -180,10 +180,7 @@ Built with refinery's **default features**: `mysql`, `postgresql`, `sqlite-bundl
   differ here, which changes that table.
 - **SQLite is bundled** and compiled with `SQLITE_ENABLE_MATH_FUNCTIONS`, matching upstream.
 - **Postgres TLS is opt-in** via `?sslmode=require` in your connection URL. It uses OpenSSL on
-  Linux, SChannel on Windows and Security.framework on macOS. It requires **refinery 0.9.2 or
-  later** — upstream 0.9.0 and 0.9.1 compile the `postgresql` feature against a driver with no TLS
-  backend, so those binaries cannot do `sslmode=require` at all. We publish them for completeness
-  and label it in each archive's `BUILDINFO.txt`.
+  Linux, SChannel on Windows and Security.framework on macOS.
 - **MSSQL connections are not encrypted**, and Windows integrated auth is unavailable: upstream
   builds `tiberius` with `default-features = false`, which disables its TLS backend. This is
   upstream's choice, not ours.

@@ -199,10 +199,6 @@ Behaviour worth knowing before you promise a user something:
 
 - **Postgres TLS is opt-in** — add `?sslmode=require` to the URL. Uses OpenSSL on Linux, SChannel on
   Windows, Security.framework on macOS.
-- **Postgres TLS needs `version: 0.9.2` or later.** Upstream 0.9.0 and 0.9.1 map the `postgresql`
-  feature to a driver with no TLS backend, so `sslmode=require` fails on those binaries no matter
-  what you configure. If a user is connecting to RDS, Cloud SQL, Supabase or Neon, do not pin them
-  below 0.9.2. Each archive's `BUILDINFO.txt` states `Postgres TLS: YES|NO` for the binary you got.
 - **MSSQL connections are NOT encrypted**, and Windows integrated auth is unavailable. Upstream
   builds `tiberius` with `default-features = false`, which disables its TLS backend. If a user needs
   encrypted SQL Server connections, this CLI cannot currently provide them.

@@ -63,21 +63,6 @@ printf 'pristine Cargo.lock is self-consistent\n'
 : > PATCH.txt
 LOCKED_FLAG="--locked"
 
-# Whether this upstream version can do Postgres TLS: refinery_cli/postgresql maps
-# to refinery-core/postgres-tls in 0.9.2+, but to plain refinery-core/postgres in
-# 0.9.0 and 0.9.1, which have no TLS backend at all.
-#
-# This is a LABELLING signal only -- it must not gate the patch below. openssl-sys
-# is in the build graph on Linux for every 0.9.x version regardless of
-# postgres-tls, so skipping the vendored patch does not remove OpenSSL from the
-# build; it just leaves openssl-sys probing pkg-config for a system OpenSSL that
-# cannot be cross-compiled against, which fails the build outright.
-PG_TLS=off
-if sed -n '/^\[features\]/,/^\[/p' Cargo.toml | grep -q 'refinery-core/postgres-tls'; then
-  PG_TLS=on
-fi
-printf 'postgres TLS in refinery_cli %s: %s\n' "$VERSION" "$PG_TLS"
-
 case "$TARGET" in
   *-linux-*)
     # refinery-core declares native-tls without a `vendored` feature, and a
@@ -112,14 +97,6 @@ PATCH
     ;;
 esac
 
-if [ "$PG_TLS" = off ]; then
-  printf '::warning title=fetch-source::refinery %s has no Postgres TLS support: refinery_cli/postgresql maps to refinery-core/postgres, not postgres-tls (upstream added postgres-tls in 0.9.2). OpenSSL is still linked, but sslmode=require will not work.\n' "$VERSION"
-fi
-
 # Consumed by the build step.
 printf '%s\n' "$LOCKED_FLAG" > .locked_flag
-printf '%s\n' "$PG_TLS" > .pg_tls
-if [ -n "${GITHUB_ENV:-}" ]; then
-  printf 'REFINERY_PG_TLS=%s\n' "$PG_TLS" >> "$GITHUB_ENV"
-fi
 printf 'source ready: %s (locked_flag=%s)\n' "$PWD" "${LOCKED_FLAG:-<none>}"

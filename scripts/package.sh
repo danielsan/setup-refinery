@@ -10,7 +10,6 @@ EXT="${EXT:-tar.gz}"
 EXE="${EXE:-}"
 EXTRA_EXT="${EXTRA_EXT:-}"
 OPENSSL_KIND="${OPENSSL_KIND:-unknown}"
-
 SRC="src-build/refinery_cli-$VERSION"
 BIN="$SRC/target/$TARGET/release/refinery$EXE"
 
@@ -77,10 +76,6 @@ BIN_SHA="$(sha256sum "$BIN" | awk '{print $1}')"
   printf 'features             : default (mysql, postgresql, sqlite-bundled, mssql)\n'
   printf 'int8-versions        : OFF  <-- i32 migration versions, standard schema history\n'
   printf 'TLS backend          : %s\n' "$OPENSSL_KIND"
-  printf 'Postgres TLS         : %s\n' \
-    "$([ "${REFINERY_PG_TLS:-on}" = on ] \
-        && echo 'YES (refinery-core/postgres-tls -> native-tls)' \
-        || echo 'NO  (refinery-core/postgres; upstream added postgres-tls in 0.9.2)')"
   printf 'MSSQL TLS            : none (tiberius is built with default-features = false)\n'
   printf '\n'
   printf 'LIBSQLITE3_FLAGS     : %s\n' "${LIBSQLITE3_FLAGS:-<unset>}"

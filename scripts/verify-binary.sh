@@ -57,15 +57,9 @@ case "$OS:$TARGET" in
     # OpenSSL cannot be handshake-tested cheaply: sslmode=require against a
     # self-signed cert fails CA and hostname verification by design. So prove it
     # is LINKED. Honest limitation -- presence is structural, not functional.
-    #
-    # openssl-sys is in the Linux build graph for every 0.9.x version, whether or
-    # not refinery-core/postgres-tls is enabled, so vendored OpenSSL must always
-    # be present here. REFINERY_PG_TLS only says whether that OpenSSL is reachable
-    # through a Postgres TLS driver; it does not change this assertion.
     ssl="$(strings -a "$BIN" | grep -oE 'OpenSSL 3\.[0-9]+\.[0-9]+' | sort -u | head -1 || true)"
     [ -n "$ssl" ] || fail "no vendored OpenSSL found in the $TARGET binary"
-    printf 'linkage: static, no NEEDED, no INTERP, %s (postgres TLS: %s)\n' \
-      "$ssl" "${REFINERY_PG_TLS:-on}"
+    printf 'linkage: static, no NEEDED, no INTERP, %s\n' "$ssl"
     ;;
   macOS:*)
     otool_out="$(otool -L "$BIN")"

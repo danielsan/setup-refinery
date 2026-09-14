@@ -52,6 +52,16 @@ else
     || fail "refinery_cli $VERSION is yanked on crates.io; refusing to build it"
 fi
 
+# 0.9.2 is the oldest version we build. Everything below it differs in ways that
+# would have to be carried forever for no one's benefit: 0.9.0 and 0.9.1 map
+# refinery_cli/postgresql to refinery-core/postgres rather than postgres-tls, so
+# they have no Postgres TLS at all, and upstream did publish its own binaries for
+# 0.8.x. Refusing them here keeps one build path with one feature contract.
+MIN_VERSION=0.9.2
+if [ "$(printf '%s\n%s\n' "$MIN_VERSION" "$VERSION" | sort -t. -k1,1n -k2,2n -k3,3n | head -n1)" != "$MIN_VERSION" ]; then
+  fail "refinery $VERSION is older than the minimum supported version $MIN_VERSION; setup-refinery does not build it"
+fi
+
 TAG="refinery-v$VERSION"
 out version "$VERSION"
 out tag "$TAG"
