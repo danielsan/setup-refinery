@@ -371,7 +371,7 @@ jobs:
   publish:
     name: publish the release
     needs: [resolve, finalize]
-    if: ${{ !inputs.dry_run && needs.finalize.result == 'success' }}
+    if: ${{ always() && !inputs.dry_run && needs.finalize.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -389,7 +389,7 @@ jobs:
   consumer-smoke:
     name: consumer smoke (${{ matrix.runner }})
     needs: [resolve, publish]
-    if: ${{ !inputs.dry_run && needs.publish.result == 'success' }}
+    if: ${{ always() && !inputs.dry_run && needs.publish.result == 'success' }}
     strategy:
       fail-fast: false
       matrix:
