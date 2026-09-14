@@ -70,6 +70,8 @@ jobs:
       - name: Open or reuse a tracking issue
         env:
           GH_TOKEN: ${{ github.token }}
+          # This job has no checkout, so gh cannot infer the repository.
+          GH_REPO: ${{ github.repository }}
           VERSION: ${{ needs.check.outputs.version }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -80,6 +82,11 @@ jobs:
             gh issue comment "$existing" \
               --body "Automatic build of refinery \`${VERSION:-unknown}\` failed again: $RUN_URL"
           else
+            # --label fails hard if the label is missing, which would turn a
+            # build failure into a silent notification failure. Ensure it exists.
+            gh label create upstream-build-failure \
+              --description "Automated upstream refinery build failed" \
+              --color B60205 2>/dev/null || true
             gh issue create \
               --title "Automatic build failed for refinery ${VERSION:-unknown}" \
               --label upstream-build-failure \

@@ -379,6 +379,9 @@ jobs:
       - name: Undraft
         env:
           GH_TOKEN: ${{ github.token }}
+          # No checkout in this job, so gh cannot infer the repo from a git
+          # remote. GH_REPO supplies it without pulling in the source tree.
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.resolve.outputs.tag }}
         # --latest=false again: undrafting must not steal "Latest release" from
         # the action's own v1.x release.
@@ -431,6 +434,7 @@ jobs:
       - name: Return the release to draft
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.resolve.outputs.tag }}
         run: |
           gh release edit "$TAG" --draft=true
