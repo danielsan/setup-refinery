@@ -357,29 +357,55 @@ jobs:
           fi
           echo "all $(wc -l < expected.txt) expected assets are present"
 
-  consumer-smoke:
-    name: consumer smoke (${{ matrix.runner }})
+  # Publish BEFORE smoke-testing, then roll back on failure.
+  #
+  # The alternative -- smoke-test the draft, then publish -- cannot work honestly:
+  # draft assets are invisible at the public download URL and invisible to a
+  # read-only token, so testing them requires push access and therefore exercises
+  # a code path no real consumer ever takes, while leaving the path they DO take
+  # untested. Publishing first lets the smoke test be a truthful consumer:
+  # unauthenticated, straight off the public URL.
+  #
+  # The exposure window is the couple of minutes the smoke test takes, and these
+  # releases are make_latest=false, so a bad one is never "Latest".
+  publish:
+    name: publish the release
     needs: [resolve, finalize]
     if: ${{ !inputs.dry_run && needs.finalize.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Undraft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+        # --latest=false again: undrafting must not steal "Latest release" from
+        # the action's own v1.x release.
+        run: |
+          gh release edit "$TAG" --draft=false --latest=false
+          echo "::notice::published $TAG (pending consumer verification)"
+
+  consumer-smoke:
+    name: consumer smoke (${{ matrix.runner }})
+    needs: [resolve, publish]
+    if: ${{ !inputs.dry_run && needs.publish.result == 'success' }}
     strategy:
       fail-fast: false
       matrix:
         runner: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel, windows-latest]
     runs-on: ${{ matrix.runner }}
     permissions:
+      # Exactly what a consumer has. No more.
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      # Install from the DRAFT release using the real composite action, before
-      # anyone outside this repo can consume it.
-      # Installs from the DRAFT release. Draft assets 404 at the public download
-      # URL, so this exercises the action's authenticated asset-API path -- the
-      # same path a private fork or internal mirror would take.
+      # No `token:` input on purpose. An exact version resolves with zero API
+      # calls and downloads straight from the public URL -- the real consumer path.
       - uses: ./
         id: setup
         with:
           version: ${{ needs.resolve.outputs.version }}
-          token: ${{ github.token }}
       - shell: bash
         run: |
           set -euo pipefail
@@ -393,20 +419,20 @@ jobs:
           done
           echo "licence and provenance files present"
 
-  publish:
-    name: publish the release
-    needs: [resolve, consumer-smoke]
-    if: ${{ !inputs.dry_run && needs.consumer-smoke.result == 'success' }}
+  rollback:
+    name: roll back to draft
+    needs: [resolve, publish, consumer-smoke]
+    # Only when the release was actually published and verification then failed.
+    if: ${{ always() && !inputs.dry_run && needs.publish.result == 'success' && needs.consumer-smoke.result == 'failure' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Undraft
+      - name: Return the release to draft
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.resolve.outputs.tag }}
-        # --latest=false again: undrafting must not steal "Latest release" from
-        # the action's own v1.x release.
         run: |
-          gh release edit "$TAG" --draft=false --latest=false
-          echo "::notice::published $TAG"
+          gh release edit "$TAG" --draft=true
+          echo "::error::consumer verification failed; $TAG was returned to draft and is not downloadable"
+          exit 1
