@@ -51,7 +51,11 @@ jobs:
     name: resolve version and plan
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      # write, not read: the GitHub API only returns DRAFT releases to a token
+      # with push access. With contents:read this job cannot see the assets of a
+      # release it has not published yet, so it would re-plan and rebuild every
+      # target on each re-run. It only ever reads.
+      contents: write
     outputs:
       version: ${{ steps.plan.outputs.version }}
       tag: ${{ steps.plan.outputs.tag }}

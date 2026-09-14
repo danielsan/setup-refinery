@@ -27,7 +27,9 @@ jobs:
     name: check crates.io
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      # write so the API returns draft releases; see build-upstream.yml's resolve
+      # job. This job only reads.
+      contents: write
     outputs:
       version: ${{ steps.plan.outputs.version }}
       needed: ${{ steps.plan.outputs.needed }}
