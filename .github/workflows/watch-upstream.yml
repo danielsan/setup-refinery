@@ -89,5 +89,3 @@ jobs:
           release, so consumers are unaffected and still resolve the previous
           version."
           fi
-
-# (touched to trigger workflow registration)
