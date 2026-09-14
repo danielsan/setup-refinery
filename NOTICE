@@ -1,0 +1,44 @@
+setup-refinery
+==============
+
+The code in this repository (the composite action, its shell scripts and its
+workflows) is Copyright (c) 2026 Daniel Santana and licensed under the MIT
+licence; see LICENSE.
+
+Redistributed third-party software
+----------------------------------
+
+The releases of this repository tagged `refinery-v*` contain compiled binaries
+of `refinery_cli`, from the refinery project:
+
+    https://github.com/rust-db/refinery
+    Copyright (c) 2018 Katharina Fey and the refinery contributors
+
+refinery's crates are licensed `MIT OR Apache-2.0`. The upstream repository
+distributes only the MIT licence text, so these binaries are redistributed
+under the **MIT option** of that dual licence. A copy of upstream's LICENSE is
+included inside every release archive.
+
+These binaries are built from the unmodified crates.io source of `refinery_cli`
+with the following build-level differences from a plain `cargo install`, all of
+which are recorded in the `BUILDINFO.txt` inside each archive:
+
+  1. On Linux only, a `[target.'cfg(target_os = "linux")'.dependencies]` entry
+     is appended to `Cargo.toml` to build OpenSSL from source via `openssl-src`,
+     so the resulting musl binary is fully static. This adds no code to refinery
+     and changes no refinery behaviour.
+  2. `LIBSQLITE3_FLAGS=-DSQLITE_ENABLE_MATH_FUNCTIONS` and
+     `[profile.release] lto = true, codegen-units = 1` are set explicitly,
+     replicating upstream's own build settings, which live in files that are not
+     part of the published crate.
+  3. `strip = "symbols"` is set to reduce download size.
+
+Each release archive also contains a `THIRD-PARTY-NOTICES.md` listing the Rust
+crates statically linked into the binary, and the C libraries it embeds:
+
+  * SQLite  - public domain (bundled, compiled from source)
+  * zlib    - zlib licence (via libz-sys, compiled from source)
+  * OpenSSL - Apache-2.0 (Linux archives only; macOS and Windows use the
+              operating system's TLS stack instead)
+
+This project is not affiliated with or endorsed by the refinery maintainers.

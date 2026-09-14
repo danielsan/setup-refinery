@@ -87,7 +87,7 @@ MATRIX="$(jq -c --arg v "$VERSION" --arg missing "$MISSING" '
 
 COUNT="$(printf '%s' "$MATRIX" | jq 'length')"
 out matrix "$MATRIX"
-out any "$([ "$COUNT" -gt 0 ] && echo true || echo false)"
+if [ "$COUNT" -gt 0 ]; then out any true; else out any false; fi
 
 # watch-upstream also treats a still-draft release as "needed", so an interrupted
 # run gets picked up on the next tick rather than silently staying unpublished.
@@ -95,7 +95,11 @@ DRAFT=false
 if command -v gh >/dev/null 2>&1; then
   DRAFT="$(gh release view "$TAG" --json isDraft --jq '.isDraft' 2>/dev/null || echo false)"
 fi
-out needed "$([ "$COUNT" -gt 0 ] || [ "$DRAFT" = true ] && echo true || echo false)"
+if [ "$COUNT" -gt 0 ] || [ "$DRAFT" = true ]; then
+  out needed true
+else
+  out needed false
+fi
 
 printf 'version=%s tag=%s targets_needed=%s draft=%s\n' "$VERSION" "$TAG" "$COUNT" "$DRAFT"
 printf '%s\n' "$MATRIX" | jq -r '.[] | "  needs build: \(.target) on \(.runner)"'

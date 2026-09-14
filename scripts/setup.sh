@@ -132,9 +132,14 @@ resolve_latest() {
     page=$((page + 1))
   done
 
-  printf '%s' "$all" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
-    | { [ -n "$prefix" ] && grep -E "^${prefix//./\\.}(\.|$)" || cat; } \
-    | semver_sort | tail -n1
+  # Note: no `grep ... || cat` fallback here. grep would have already drained
+  # stdin by the time the fallback ran, so the branch must be chosen up front.
+  local versions
+  versions="$(printf '%s' "$all" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true)"
+  if [ -n "$prefix" ]; then
+    versions="$(printf '%s\n' "$versions" | grep -E "^${prefix//./\\.}(\.|$)" || true)"
+  fi
+  printf '%s\n' "$versions" | grep -E '^[0-9]' | semver_sort | tail -n1 || true
 }
 
 AVAILABLE=""
@@ -279,12 +284,18 @@ Nothing was installed. Please report it at $SERVER/$RELEASE_REPO/issues if it re
   local staging="$WORK/staging"
   mkdir -p "$staging"
   cp "$bin" "$staging/refinery$EXE"
+  # The licence and notices are a redistribution obligation, so copy them when
+  # present -- but do not mask a real copy failure behind `|| true`.
   for extra in LICENSE BUILDINFO.txt THIRD-PARTY-NOTICES.md README.md; do
-    [ -f "$WORK/x/$extra" ] && cp "$WORK/x/$extra" "$staging/$extra" || true
+    if [ -f "$WORK/x/$extra" ]; then
+      cp "$WORK/x/$extra" "$staging/$extra"
+    fi
   done
   mv -f "$staging/refinery$EXE" "$DEST/refinery$EXE"
   for extra in LICENSE BUILDINFO.txt THIRD-PARTY-NOTICES.md README.md; do
-    [ -f "$staging/$extra" ] && mv -f "$staging/$extra" "$DEST/$extra" || true
+    if [ -f "$staging/$extra" ]; then
+      mv -f "$staging/$extra" "$DEST/$extra"
+    fi
   done
   # actions/toolkit-compatible marker, so pre-baked self-hosted images interoperate.
   : > "$(dirname "$DEST")/$TC_ARCH.complete" 2>/dev/null || true
@@ -351,15 +362,24 @@ if ! $PLATFORM_SUPPORTED; then
   fi
 elif ! $CACHE_HIT; then
   if ! download_and_install; then
+    # Best effort: only to build a helpful message. If this lookup itself fails
+    # (rate limit, offline) we still report the original 404 rather than masking it.
     AVAILABLE="$(resolve_latest "" 2>/dev/null | tail -n5 | tr '\n' ' ' || true)"
+    AVAILABLE="${AVAILABLE% }"
     if [ "$FALLBACK" = cargo ]; then
       cargo_fallback
     else
+      if [ -n "$AVAILABLE" ]; then
+        newest="${AVAILABLE##* }"
+        suggestion="pin a version that has a prebuilt binary, e.g. with: { version: '$newest' }"
+      else
+        suggestion="no prebuilt binaries are published for this platform yet; see $SERVER/$RELEASE_REPO/releases"
+      fi
       die "$(printf '%s\n%s\n%s' \
         "no prebuilt refinery binary for version $VERSION on $OS/$ARCH (target $TARGET)." \
         "Versions with an asset for this platform: ${AVAILABLE:-none}" \
         "Options:
-  1. pin a supported version:   with: { version: '${AVAILABLE##* }' }
+  1. $suggestion
   2. build from source (slow, needs a Rust toolchain on PATH):
        - uses: dtolnay/rust-toolchain@stable
        - uses: $RELEASE_REPO@v1

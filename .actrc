@@ -1,0 +1,4 @@
+# Pin act's runner images so local runs match CI more closely. The default
+# `catthehacker/ubuntu:act-latest` lacks some preinstalled tools (notably psql).
+-P ubuntu-latest=catthehacker/ubuntu:full-latest
+-P ubuntu-24.04=catthehacker/ubuntu:full-24.04

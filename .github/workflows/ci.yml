@@ -1,0 +1,306 @@
+# Self-tests for the action half of this repo.
+#
+# NOTE: every job that installs refinery needs published release assets. Until
+# build-upstream.yml has published its first refinery-v* release, the `install`,
+# `cache`, `alpine` and `migrate` jobs will fail by design -- they are asserting
+# that real consumers can install a real binary.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: shellcheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          shellcheck --severity=warning scripts/*.sh test/*.sh
+      - name: actionlint
+        # Validates action.yml and workflow syntax, and shellchecks embedded
+        # `run:` blocks -- which is most of what can go wrong in a composite action.
+        run: |
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -color
+      - name: targets.json is valid
+        run: jq -e '.targets | length == 5' .github/targets.json
+
+  unit:
+    name: unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - run: bash test/unit.sh
+
+  install:
+    name: install ${{ matrix.runner }} (${{ matrix.version }})
+    needs: unit
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel, windows-latest]
+        version: ['0.9.2', 'latest']
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./
+        id: setup
+        with:
+          version: ${{ matrix.version }}
+      - name: Assert the binary works and the outputs are sane
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v refinery
+          refinery migrate --help > /dev/null
+
+          v='${{ steps.setup.outputs.version }}'
+          case "$v" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::version output is not X.Y.Z: '$v'"; exit 1 ;;
+          esac
+          if [ '${{ matrix.version }}' != latest ] && [ "$v" != '${{ matrix.version }}' ]; then
+            echo "::error::asked for ${{ matrix.version }} but got $v"; exit 1
+          fi
+
+          # refinery_cli prints "refinery_cli <version>", not "refinery <version>".
+          # Substring-matching the version is what catches a MISLABELLED asset,
+          # e.g. 0.9.1 bits uploaded under a 0.9.2 filename.
+          reported="$(refinery --version | tr -d '\r')"
+          echo "reported: $reported"
+          case "$reported" in
+            *"$v"*) ;;
+            *) echo "::error::binary reports '$reported' but $v was installed"; exit 1 ;;
+          esac
+
+          bin='${{ steps.setup.outputs.bin-path }}'
+          [ -n "$bin" ] || { echo "::error::bin-path output is empty"; exit 1; }
+
+  partial-version:
+    name: partial version resolves
+    needs: unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./
+        id: setup
+        with:
+          version: '0.9'
+      - shell: bash
+        run: |
+          v='${{ steps.setup.outputs.version }}'
+          case "$v" in
+            0.9.*) echo "resolved 0.9 -> $v" ;;
+            *) echo "::error::'0.9' resolved to $v, which is not 0.9.x"; exit 1 ;;
+          esac
+
+  cache:
+    name: tool cache
+    needs: unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # GitHub-hosted runners get a fresh VM per job, so the cache can only be
+      # observed WITHIN one job. Two consecutive installs is the honest test.
+      - uses: ./
+        id: first
+        with:
+          version: '0.9.2'
+      - uses: ./
+        id: second
+        with:
+          version: '0.9.2'
+      - shell: bash
+        run: |
+          set -euo pipefail
+          echo "first=${{ steps.first.outputs.cache-hit }} second=${{ steps.second.outputs.cache-hit }}"
+          [ '${{ steps.first.outputs.cache-hit }}'  = 'false' ] || { echo "::error::first install should not be a cache hit"; exit 1; }
+          [ '${{ steps.second.outputs.cache-hit }}' = 'true'  ] || { echo "::error::second install should be a cache hit"; exit 1; }
+
+  prebaked-cache:
+    name: pre-baked tool cache is honoured
+    needs: unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # Tests the cache LOOKUP path independently of our own write path, with no
+      # network at all. This is what catches a marker/layout regression.
+      - name: Plant a stub in the tool cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          d="$RUNNER_TOOL_CACHE/refinery/9.9.9/x64"
+          mkdir -p "$d"
+          printf '#!/usr/bin/env bash\necho "SENTINEL-STUB 9.9.9"\n' > "$d/refinery"
+          chmod +x "$d/refinery"
+          : > "$RUNNER_TOOL_CACHE/refinery/9.9.9/x64.complete"
+      - uses: ./
+        id: setup
+        with:
+          version: '9.9.9'
+      - shell: bash
+        run: |
+          set -euo pipefail
+          [ '${{ steps.setup.outputs.cache-hit }}' = 'true' ] \
+            || { echo "::error::pre-baked cache was not used"; exit 1; }
+          refinery --version | grep -q 'SENTINEL-STUB' \
+            || { echo "::error::the stub from the tool cache was not the binary on PATH"; exit 1; }
+          echo "pre-baked cache honoured"
+
+  error-paths:
+    name: error paths fail cleanly
+    needs: unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: ./
+        id: nonexistent
+        continue-on-error: true
+        with:
+          version: '99.99.99'
+      - uses: ./
+        id: malformed
+        continue-on-error: true
+        with:
+          version: '^0.9'
+      - uses: ./
+        id: empty
+        continue-on-error: true
+        with:
+          # Exercises the actions/runner#1070 gap: `required: true` is not
+          # enforced by the runner, so the action must validate inputs itself.
+          version: ''
+      - uses: ./
+        id: badfallback
+        continue-on-error: true
+        with:
+          version: '0.9.2'
+          fallback: 'bogus'
+
+      - name: Assert each failed
+        shell: bash
+        run: |
+          set -euo pipefail
+          for pair in \
+            'nonexistent:${{ steps.nonexistent.outcome }}' \
+            'malformed:${{ steps.malformed.outcome }}' \
+            'empty:${{ steps.empty.outcome }}' \
+            'badfallback:${{ steps.badfallback.outcome }}'; do
+            name="${pair%%:*}"; outcome="${pair##*:}"
+            if [ "$outcome" != failure ]; then
+              echo "::error::expected '$name' to fail, but outcome was '$outcome'"; exit 1
+            fi
+            echo "ok: $name failed as expected"
+          done
+
+  unsupported-platform:
+    name: unsupported platform fails cleanly
+    needs: unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # Simulate 32-bit ARM without needing an exotic runner.
+      - uses: ./
+        id: arm32
+        continue-on-error: true
+        env:
+          RUNNER_ARCH: ARM
+        with:
+          version: '0.9.2'
+      - shell: bash
+        run: |
+          [ '${{ steps.arm32.outcome }}' = failure ] \
+            || { echo "::error::linux/ARM should be unsupported with fallback: none"; exit 1; }
+          echo "ok: unsupported platform failed as expected"
+
+  alpine:
+    name: musl binary runs on Alpine
+    needs: unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # Deliberately NOT `container: alpine`: container jobs need the runner's
+      # glibc node for JS actions, and Alpine has no bash, which breaks every
+      # composite `shell: bash` step. Driving docker from a normal job avoids both.
+      - uses: ./
+        id: setup
+        with:
+          version: '0.9.2'
+      - shell: bash
+        run: |
+          set -euo pipefail
+          bin='${{ steps.setup.outputs.bin-path }}'
+          docker run --rm -v "$(dirname "$bin")":/x:ro alpine:3.20 /x/refinery --version
+          docker run --rm -v "$(dirname "$bin")":/x:ro alpine:3.20 /x/refinery migrate --help
+
+  migrate:
+    name: postgres migration round-trip
+    needs: unit
+    runs-on: ubuntu-latest
+    # Service containers do not exist on hosted macOS (no Docker) or Windows, so
+    # this job is Linux-only. That is a runner limitation, documented in the README.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: refinery_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/refinery_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./
+        with:
+          version: '0.9.2'
+
+      - name: Apply migrations
+        # No refinery.toml anywhere: with -e, migrate.rs never reads the config
+        # file and db_type comes from the URL scheme.
+        run: refinery migrate -e DATABASE_URL -p ./test/migrations
+
+      - name: Assert schema history
+        run: |
+          set -euo pipefail
+          n="$(psql "$DATABASE_URL" -tAc 'select count(*) from refinery_schema_history')"
+          [ "$n" = 2 ] || { echo "::error::expected 2 applied migrations, got $n"; exit 1; }
+          psql "$DATABASE_URL" -tAc 'select version, name from refinery_schema_history order by version'
+          # The migrations must have actually run, not just been recorded.
+          psql "$DATABASE_URL" -tAc "select colour from widgets limit 0" >/dev/null
+
+      - name: Assert idempotency
+        run: |
+          set -euo pipefail
+          refinery migrate -e DATABASE_URL -p ./test/migrations
+          n="$(psql "$DATABASE_URL" -tAc 'select count(*) from refinery_schema_history')"
+          [ "$n" = 2 ] || { echo "::error::re-running changed the history count to $n"; exit 1; }
+
+      - name: Assert flag pass-through reaches the binary
+        run: |
+          set -euo pipefail
+          psql "$DATABASE_URL" -qc 'drop table widgets, refinery_schema_history'
+          # -t 1 must apply ONLY V1, and --table-name must be honoured.
+          refinery migrate -e DATABASE_URL -p ./test/migrations -t 1 --table-name custom_history
+          n="$(psql "$DATABASE_URL" -tAc 'select count(*) from custom_history')"
+          [ "$n" = 1 ] || { echo "::error::-t 1 applied $n migrations, expected 1"; exit 1; }
+          echo "flag pass-through verified"

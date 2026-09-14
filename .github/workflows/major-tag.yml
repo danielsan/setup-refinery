@@ -1,0 +1,41 @@
+# Move the floating `v1` tag when an action release is published.
+name: major-tag
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  retag:
+    # CRITICAL GUARD: this event also fires for every refinery-v* binary payload
+    # release. Without the startsWith check, publishing refinery binaries would
+    # move the tag consumers pin their workflows to.
+    if: startsWith(github.event.release.tag_name, 'v') && !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Move the major tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+          SHA: ${{ github.sha }}
+        # No checkout and no third-party action: less supply-chain surface for
+        # something that rewrites a tag consumers depend on. Pushes made with
+        # GITHUB_TOKEN do not retrigger workflows, so this cannot loop.
+        run: |
+          set -euo pipefail
+          if [[ ! "$TAG" =~ ^v([0-9]+)\.[0-9]+\.[0-9]+$ ]]; then
+            echo "not an action release tag, ignoring: $TAG"
+            exit 0
+          fi
+          major="v${BASH_REMATCH[1]}"
+          echo "moving $major -> $SHA (from release $TAG)"
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$major" \
+                 -f sha="$SHA" -F force=true \
+            || gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" \
+                 -f ref="refs/tags/$major" -f sha="$SHA"
+          echo "::notice::$major now points at $SHA"

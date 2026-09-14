@@ -1,0 +1,91 @@
+# Detect a new refinery_cli release on crates.io and build it automatically.
+#
+# Fully automatic by design. The safeguards that make that defensible live in the
+# pipeline itself, not here: the source .crate is sha256-verified, the toolchain
+# is pinned, the feature contract is asserted, every target runs a real migration
+# round-trip, the composite action smoke-tests the draft on all five platforms,
+# and an incomplete release refuses to publish. This job only ever ADDS a new
+# refinery-v<version> release; it never overwrites one or touches action tags.
+name: watch-upstream
+
+on:
+  schedule:
+    # Daily. Upstream releases a few times a year, so this is mostly a no-op.
+    # Deliberately not on the hour: :00 is the busiest queue slot on GitHub.
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: watch-upstream
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: check crates.io
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      needed: ${{ steps.plan.outputs.needed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Blank version => resolve the latest non-yanked release from crates.io.
+          INPUT_VERSION: ''
+        # Same script the dispatch path uses, so the scheduled and manual routes
+        # cannot drift apart. `needed` is also true when a release exists but is
+        # still a draft, so an interrupted run gets picked up on the next tick.
+        run: bash scripts/resolve-upstream.sh --check-only
+
+  build:
+    name: build ${{ needs.check.outputs.version }}
+    needs: check
+    if: needs.check.outputs.needed == 'true'
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/build-upstream.yml
+    with:
+      version: ${{ needs.check.outputs.version }}
+
+  notify:
+    name: report failure
+    needs: [check, build]
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      # A scheduled workflow that fails is otherwise completely silent.
+      # Deduplicated so a persistently broken upstream does not open an issue a day.
+      - name: Open or reuse a tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.check.outputs.version }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          existing="$(gh issue list --label upstream-build-failure --state open \
+            --json number --jq '.[0].number' || true)"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" \
+              --body "Automatic build of refinery \`${VERSION:-unknown}\` failed again: $RUN_URL"
+          else
+            gh issue create \
+              --title "Automatic build failed for refinery ${VERSION:-unknown}" \
+              --label upstream-build-failure \
+              --body "The scheduled upstream build failed.
+
+          Run: $RUN_URL
+
+          Nothing was published: the pipeline refuses to publish an incomplete
+          release, so consumers are unaffected and still resolve the previous
+          version."
+          fi

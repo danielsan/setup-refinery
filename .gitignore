@@ -1,0 +1,6 @@
+# Build and packaging scratch produced by the pipeline scripts
+/src-build/
+/dist/
+/stage/
+/dl/
+actionlint

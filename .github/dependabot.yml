@@ -1,0 +1,12 @@
+version: 2
+updates:
+  # Keeps the SHA-pinned third-party actions current. Consumers inherit this
+  # repo's supply chain, so these pins must not be allowed to rot.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: 'ci'
+    labels:
+      - dependencies

@@ -320,8 +320,12 @@ jobs:
           # ones this run produced.
           gh release download "$TAG" --pattern 'refinery-*' --clobber
           rm -f SHA256SUMS
-          sha256sum refinery-*.tar.gz refinery-*.zip 2>/dev/null > SHA256SUMS || \
-            sha256sum refinery-*.tar.gz > SHA256SUMS
+          # Sidecars are excluded: SHA256SUMS covers the archives themselves.
+          find . -maxdepth 1 -type f \
+               \( -name 'refinery-*.tar.gz' -o -name 'refinery-*.zip' \) \
+               -printf '%f\n' | sort > archives.txt
+          [ -s archives.txt ] || { echo "::error::no archives found on $TAG"; exit 1; }
+          xargs -a archives.txt sha256sum > SHA256SUMS
           cat SHA256SUMS
           gh release upload "$TAG" SHA256SUMS --clobber
 
@@ -330,16 +334,20 @@ jobs:
           VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
-          expected="$(jq -r --arg v "$VERSION" \
-            '.targets[] | "refinery-\($v)-\(.target).\(.ext)"' .github/targets.json | sort)"
-          actual="$(cd dl && ls refinery-*.tar.gz refinery-*.zip 2>/dev/null | sort || true)"
-          missing="$(comm -23 <(printf '%s\n' "$expected") <(printf '%s\n' "$actual"))"
+          jq -r --arg v "$VERSION" \
+            '.targets[] | "refinery-\($v)-\(.target).\(.ext)"' \
+            .github/targets.json | sort > expected.txt
+          # archives.txt was produced by the previous step from what is actually
+          # attached to the release.
+          missing="$(comm -23 expected.txt dl/archives.txt || true)"
           if [ -n "$missing" ]; then
-            echo "::error::release is incomplete; refusing to publish. Missing:"
-            printf '  %s\n' $missing
+            echo "::error::release is incomplete; refusing to publish"
+            while IFS= read -r m; do
+              [ -n "$m" ] && echo "  missing: $m"
+            done <<< "$missing"
             exit 1
           fi
-          echo "all $(printf '%s\n' "$expected" | grep -c .) expected assets present"
+          echo "all $(wc -l < expected.txt) expected assets are present"
 
   consumer-smoke:
     name: consumer smoke (${{ matrix.runner }})
